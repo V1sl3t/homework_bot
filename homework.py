@@ -75,12 +75,12 @@ def check_response(response):
         raise TypeError(error_message)
     keys_list = {'homeworks': list,
                  'current_date': int}
-    for key in keys_list:
+    for key, key_type in keys_list.items():
         if key not in response:
             error_message = (f'Отсутствует ключ {key}')
             logging.error(error_message)
             raise KeyError(error_message)
-        if not isinstance(response[key], keys_list[key]):
+        if not isinstance(response[key], key_type):
             error_message = ('Ошибка: в ответе приходит '
                              'иной тип данных для ключа "homeworks"')
             logging.error(error_message)
@@ -120,7 +120,7 @@ def main():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     updater = Updater(token=TELEGRAM_TOKEN)
-    errors_list = []
+    error_message = ''
 
     while True:
         try:
@@ -135,9 +135,9 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.error(message)
-            if message not in errors_list:
+            if message != error_message:
                 send_message(bot, message)
-            errors_list.append(message)
+            error_message = message
         time.sleep(RETRY_PERIOD)
         updater.start_polling
         updater.idle
