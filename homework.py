@@ -35,10 +35,7 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверяет наличие и доступность токинов."""
-    env_list = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
-    if not all(env_list):
-        return False
-    return True
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
 
 
 def send_message(bot, message):
@@ -60,8 +57,10 @@ def get_api_answer(timestamp):
         status_code = response.status_code
     except requests.exceptions.RequestException as error:
         logging.error(f'Ошибка при запросе к основному API: {error}')
+        raise IndexError
     except Exception as error:
         logging.error(f'Ошибка при обработке ответа API: {error}')
+        raise IndexError
     if status_code != 200:
         raise StatusCodeisnot200(f'Некоректный статус '
                                  f'ответа API:{status_code}')
@@ -70,21 +69,22 @@ def get_api_answer(timestamp):
 
 def check_response(response):
     """Проверяет ответ API на соответствие документации."""
-    try:
-        homeworks = response['homeworks']
-        current_date = response['current_date']
-    except KeyError:
-        logging.error('Ошибка с отсутствием ключей в ответе')
-    if not isinstance(homeworks, list):
-        error_message = ('Ошибка: в ответе приходит '
-                         'иной тип данных для ключа "homeworks"')
+    if not isinstance(response, dict):
+        error_message = ('Ошибка: в овете приходит неожиданный тип данных')
         logging.error(error_message)
         raise TypeError(error_message)
-    if not isinstance(current_date, int):
-        error_message = ('Ошибка: в ответе приходит '
-                         'иной тип данных для ключа "current_date"')
-        logging.error(error_message)
-        raise TypeError(error_message)
+    keys_list = {'homeworks': list,
+                 'current_date': int}
+    for key in keys_list:
+        if key not in response:
+            error_message = (f'Отсутствует ключ {key}')
+            logging.error(error_message)
+            raise KeyError(error_message)
+        if not isinstance(response[key], keys_list[key]):
+            error_message = ('Ошибка: в ответе приходит '
+                             'иной тип данных для ключа "homeworks"')
+            logging.error(error_message)
+            raise TypeError(error_message)
     return True
 
 
@@ -96,13 +96,12 @@ def parse_status(homework):
             raise KeyError(f'Отсутствует ключ {key}')
     homework_name = homework['homework_name']
     homework_status = homework['status']
-    if homework_status in HOMEWORK_VERDICTS:
-        verdict = HOMEWORK_VERDICTS[homework_status]
-    else:
+    if homework_status not in HOMEWORK_VERDICTS:
         error_message = ('Неожиданный статус домашней работы, '
                          'обнаруженный в ответе API')
         logging.error(error_message)
         raise KeyError(error_message)
+    verdict = HOMEWORK_VERDICTS[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -113,7 +112,7 @@ def main():
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    if check_tokens() is False:
+    if not check_tokens():
         logging.critical('Переменные окружения отсутсвуют')
         exit()
     logging.debug('Переменные окружения присутсвуют')
@@ -121,6 +120,7 @@ def main():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     updater = Updater(token=TELEGRAM_TOKEN)
+    errors_list = []
 
     while True:
         try:
@@ -135,6 +135,9 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.error(message)
+            if message not in errors_list:
+                send_message(bot, message)
+            errors_list.append(message)
         time.sleep(RETRY_PERIOD)
         updater.start_polling
         updater.idle
