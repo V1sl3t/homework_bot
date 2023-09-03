@@ -11,18 +11,14 @@ from telegram.ext import Updater
 
 from exeptions import StatusCodeisnot200
 
+logger = logging.getLogger(__name__)
+handler = StreamHandler(stream=sys.stdout)
+
 load_dotenv()
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-formatter = ('%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-handler = StreamHandler(stream=sys.stdout)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
 
 
 RETRY_PERIOD = 600
@@ -39,12 +35,10 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверяет наличие и доступность токинов."""
-    if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        logging.debug('Переменные окружения присутсвуют')
-        return True
-    else:
-        logging.critical('Переменные окружения отсутсвуют')
-        exit()
+    env_list = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
+    if not all(env_list):
+        return False
+    return True
 
 
 def send_message(bot, message):
@@ -82,42 +76,47 @@ def check_response(response):
     except KeyError:
         logging.error('Ошибка с отсутствием ключей в ответе')
     if not isinstance(homeworks, list):
-        logging.error('Ошибка: в ответе приходит '
-                      'иной тип данных для ключа "homeworks"')
-        raise TypeError('Ошибка: в ответе приходит '
-                        'иной тип данных для ключа "homeworks"')
+        error_message = ('Ошибка: в ответе приходит '
+                         'иной тип данных для ключа "homeworks"')
+        logging.error(error_message)
+        raise TypeError(error_message)
     if not isinstance(current_date, int):
-        logging.error('Ошибка: в ответе приходит '
-                      'иной тип данных для ключа "current_date"')
-        raise TypeError('Ошибка: в ответе приходит '
-                        'иной тип данных для ключа "current_date"')
+        error_message = ('Ошибка: в ответе приходит '
+                         'иной тип данных для ключа "current_date"')
+        logging.error(error_message)
+        raise TypeError(error_message)
     return True
 
 
 def parse_status(homework):
     """Возращает подготовленную для отправки строку."""
-    if 'homework_name' not in homework:
-        raise KeyError('Отсутствует ключ "homework_name"')
+    keys_list = ['homework_name', 'status']
+    for key in keys_list:
+        if key not in homework:
+            raise KeyError(f'Отсутствует ключ {key}')
     homework_name = homework['homework_name']
     homework_status = homework['status']
     if homework_status in HOMEWORK_VERDICTS:
         verdict = HOMEWORK_VERDICTS[homework_status]
     else:
-        logging.error('Неожиданный статус домашней работы, '
-                      'обнаруженный в ответе API')
+        error_message = ('Неожиданный статус домашней работы, '
+                         'обнаруженный в ответе API')
+        logging.error(error_message)
+        raise KeyError(error_message)
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Основная логика работы бота."""
-    formatter = ('%(asctime)s - %(levelname)s - %(message)s')
-    logger = logging.getLogger(__name__)
+    formatter = '%(asctime)s - %(levelname)s - %(message)s'
     logger.setLevel(logging.DEBUG)
-    handler = StreamHandler(stream=sys.stdout)
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-    check_tokens()
+    if check_tokens() is False:
+        logging.critical('Переменные окружения отсутсвуют')
+        exit()
+    logging.debug('Переменные окружения присутсвуют')
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
@@ -126,16 +125,13 @@ def main():
     while True:
         try:
             response_api = get_api_answer(timestamp)
-            if check_response(response_api):
-                homeworks = response_api['homeworks']
-                if homeworks:
-                    for homework in homeworks:
-                        status_message = parse_status(homework)
-                        send_message(bot, status_message)
-                else:
-                    send_message(bot, 'Cписок пуст')
-                current_date = response_api['current_date']
-                timestamp = current_date if current_date else timestamp
+            check_response(response_api)
+            homeworks = response_api['homeworks']
+            for homework in homeworks:
+                status_message = parse_status(homework)
+                send_message(bot, status_message)
+            current_date = response_api['current_date']
+            timestamp = current_date if current_date else timestamp
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.error(message)
